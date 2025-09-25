@@ -172,12 +172,19 @@
       input.value = '';
 
       try {
+        // Get or generate session ID
+        let sessionId = localStorage.getItem('chat_session_id');
+        if (!sessionId) {
+          sessionId = 'web_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          localStorage.setItem('chat_session_id', sessionId);
+        }
+
         const response = await fetch(`${API_BASE_URL}/api/v1/conversation/respond`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             message: text, 
-            session_id: localStorage.getItem('chat_session_id') || 'web_' + Date.now()
+            session_id: sessionId
           })
         });
 
@@ -190,6 +197,14 @@
 
         const botMessage = data.response || data.question || data.reply || "🤔 O bot ficou em silêncio...";
         addMessage(botMessage, 'bot');
+
+        // Handle WhatsApp redirect for phone collection completion
+        if (data.phone_collected && data.phone_number) {
+          setTimeout(() => {
+            const whatsappUrl = `https://wa.me/5511918368812?text=Olá! Acabei de completar o formulário no site. Meu nome é ${data.lead_data?.step_1 || 'Cliente'} e meu número é ${data.phone_number}.`;
+            window.open(whatsappUrl, '_blank');
+          }, 2000);
+        }
       } catch (err) {
         console.error('API Error:', err);
         addMessage("⚠️ Erro de conexão com o backend.", 'bot');
@@ -198,6 +213,13 @@
 
     window.addEventListener('load', async () => {
       try {
+        // Generate session ID if not exists
+        let sessionId = localStorage.getItem('chat_session_id');
+        if (!sessionId) {
+          sessionId = 'web_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          localStorage.setItem('chat_session_id', sessionId);
+        }
+
         const response = await fetch(`${API_BASE_URL}/api/v1/conversation/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
@@ -208,12 +230,14 @@
           if (data.session_id) {
             localStorage.setItem('chat_session_id', data.session_id);
           }
-          if (data.question) {
-            addMessage(data.question, 'bot');
+          if (data.response) {
+            addMessage(data.response, 'bot');
           }
         }
       } catch (err) {
         console.error('Failed to initialize conversation:', err);
+        // Add initial message even if API fails
+        addMessage("Olá! Seja bem-vindo ao m.lima. Estou aqui para entender seu caso e agilizar o contato com um de nossos advogados especializados. Para começar, qual é o seu nome completo?", 'bot');
       }
     });
 

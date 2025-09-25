@@ -39,17 +39,17 @@ async def start_conversation():
 
         # Start with Firebase flow for web platform
         result = await intelligent_orchestrator.process_message(
-            "Olá", 
+            "olá", 
             session_id, 
             platform="web"
         )
         
         response_data = ConversationResponse(
             session_id=session_id,
-            response=result.get("response", "Olá! Seja bem-vindo ao m.lima. Estou aqui para entender seu caso e agilizar o contato com um de nossos advogados especializados. Para começar, qual é o seu nome completo?"),
+            response=result.get("response"),
             ai_mode=False,  # Web uses structured Firebase flow
             flow_completed=result.get("flow_completed", False),
-            phone_collected=result.get("phone_submitted", False),
+            phone_collected=result.get("phone_collected", False),
             lead_data=result.get("lead_data", {}),
             message_count=result.get("message_count", 1)
         )
@@ -106,7 +106,7 @@ async def respond_to_conversation(request: ConversationRequest):
             response=result.get("response", "Como posso ajudá-lo?"),
             ai_mode=False,  # Web uses structured Firebase flow
             flow_completed=result.get("flow_completed", False),
-            phone_collected=result.get("phone_submitted", False),
+            phone_collected=result.get("phone_collected", False),
             lead_data=result.get("lead_data", {}),
             message_count=result.get("message_count", 1)
         )
