@@ -46,24 +46,29 @@ class IntelligentHybridOrchestrator:
         Main entry point for processing messages from both web and WhatsApp.
         """
         try:
-            logger.info(f"🎯 Processing message | platform={platform} | session={session_id} | msg='{message[:50]}...'")
+            logger.info(f"🎯 INÍCIO - Processing message | platform={platform} | session={session_id} | msg='{message[:50]}...'")
 
             # Get or create session
             session_data = await self._get_or_create_session(session_id, platform, phone_number)
+            logger.info(f"📊 Sessão carregada | current_step={session_data.get('current_step')} | flow_completed={session_data.get('flow_completed')} | collecting_phone={session_data.get('collecting_phone')}")
             
             # Check if collecting phone number
             if session_data.get("collecting_phone"):
+                logger.info(f"📱 Coletando telefone...")
                 return await self._handle_phone_collection(message, session_id, session_data)
             
             # Check if flow is completed and should use AI
             if session_data.get("flow_completed") and session_data.get("phone_collected"):
+                logger.info(f"🤖 Usando modo AI...")
                 return await self._handle_ai_conversation(message, session_id, session_data)
             
             # Handle structured flow progression
+            logger.info(f"📋 Processando fluxo estruturado...")
             return await self._handle_structured_flow(message, session_id, session_data, platform)
 
         except Exception as e:
-            logger.error(f"❌ Error in orchestration: {str(e)}")
+            logger.error(f"❌ ERRO CRÍTICO na orquestração | session={session_id}: {str(e)}")
+            logger.error(f"🔍 Stack trace completo: {e.__class__.__name__}: {str(e)}")
             return {
                 "response": "Desculpe, ocorreu um erro. Como posso ajudá-lo?",
                 "response_type": "error_fallback",
@@ -78,10 +83,12 @@ class IntelligentHybridOrchestrator:
         phone_number: str = None
     ) -> Dict[str, Any]:
         """Get existing session or create new one."""
+        logger.info(f"🔍 Buscando/criando sessão: {session_id}")
+        
         session_data = await get_user_session(session_id)
         
         if not session_data:
-            # Create new session
+            logger.info(f"🆕 Criando nova sessão para {session_id}")
             session_data = {
                 "session_id": session_id,
                 "platform": platform,
@@ -100,7 +107,9 @@ class IntelligentHybridOrchestrator:
                 session_data["phone_number"] = phone_number
             
             await save_user_session(session_id, session_data)
-            logger.info(f"✅ New session created | session={session_id} | platform={platform}")
+            logger.info(f"✅ Nova sessão criada e salva | session={session_id} | platform={platform} | step={session_data['current_step']}")
+        else:
+            logger.info(f"📋 Sessão existente encontrada | session={session_id} | step={session_data.get('current_step')} | lead_data_keys={list(session_data.get('lead_data', {}).keys())}")
         
         # Update message count
         session_data["message_count"] = session_data.get("message_count", 0) + 1
@@ -121,7 +130,8 @@ class IntelligentHybridOrchestrator:
             flow = await get_conversation_flow()
             current_step = session_data.get("current_step", 1)
             
-            logger.info(f"📋 Handling structured flow | step={current_step} | platform={platform}")
+            logger.info(f"📋 Handling structured flow | step={current_step} | platform={platform} | msg='{message[:30]}...'")
+            logger.info(f"🔍 Session data before processing: current_step={current_step}, lead_data={session_data.get('lead_data', {})}")
             
             # Find current step in flow
             current_step_data = None
@@ -131,11 +141,12 @@ class IntelligentHybridOrchestrator:
                     break
             
             if not current_step_data:
-                logger.error(f"❌ Step {current_step} not found in flow")
+                logger.error(f"❌ Step {current_step} not found in flow - completing flow")
                 return await self._complete_flow_and_collect_phone(session_id, session_data, flow)
             
-            # If this is the first message (step 1) or start_conversation, return the question
+            # CORREÇÃO 1: Se é primeira mensagem de inicialização, retornar pergunta sem processar como resposta
             if current_step == 1 and (message.lower() in ["olá", "oi", "hello", "hi", "start_conversation"] or message == "start_conversation"):
+                logger.info(f"🚀 Primeira mensagem de inicialização detectada - retornando pergunta inicial")
                 return {
                     "response": current_step_data["question"],
                     "response_type": "structured_question",
@@ -145,8 +156,37 @@ class IntelligentHybridOrchestrator:
                     "ai_mode": False
                 }
             
-            # Validate and store the answer
+            # CORREÇÃO 2: Verificar se usuário já respondeu esta pergunta
+            field_name = f"step_{current_step}"
+            if field_name in session_data.get("lead_data", {}):
+                logger.info(f"⚠️ Usuário já respondeu step {current_step}, avançando automaticamente")
+                # Avançar para próximo step automaticamente
+                next_step = current_step + 1
+                next_step_data = None
+                for step in flow.get("steps", []):
+                    if step.get("id") == next_step:
+                        next_step_data = step
+                        break
+                
+                if next_step_data:
+                    session_data["current_step"] = next_step
+                    await save_user_session(session_id, session_data)
+                    logger.info(f"✅ Avançado automaticamente para step {next_step}")
+                    return {
+                        "response": next_step_data["question"],
+                        "response_type": "structured_question",
+                        "session_id": session_id,
+                        "current_step": next_step,
+                        "flow_completed": False,
+                        "ai_mode": False
+                    }
+                else:
+                    logger.info(f"🏁 Todas as perguntas já foram respondidas - completando fluxo")
+                    return await self._complete_flow_and_collect_phone(session_id, session_data, flow)
+            
+            # CORREÇÃO 3: Validar resposta antes de processar
             if not self._validate_answer(message, current_step):
+                logger.warning(f"❌ Resposta inválida para step {current_step}: '{message}'")
                 return {
                     "response": f"Por favor, forneça uma resposta mais completa. {current_step_data['question']}",
                     "response_type": "validation_error",
@@ -156,12 +196,16 @@ class IntelligentHybridOrchestrator:
                     "ai_mode": False
                 }
             
-            # Store the answer
-            field_name = f"step_{current_step}"
+            # CORREÇÃO 4: Armazenar resposta e logs detalhados
+            logger.info(f"💾 Salvando resposta para step {current_step}: '{message}'")
+            if "lead_data" not in session_data:
+                session_data["lead_data"] = {}
             session_data["lead_data"][field_name] = message.strip()
             
-            # Move to next step
+            # CORREÇÃO 5: Avançar para próximo step ANTES de salvar sessão
             next_step = current_step + 1
+            logger.info(f"➡️ Tentando avançar de step {current_step} para step {next_step}")
+            
             next_step_data = None
             for step in flow.get("steps", []):
                 if step.get("id") == next_step:
@@ -169,9 +213,14 @@ class IntelligentHybridOrchestrator:
                     break
             
             if next_step_data:
-                # Continue to next step
+                # CORREÇÃO 6: Atualizar current_step ANTES de salvar
                 session_data["current_step"] = next_step
+                session_data["last_updated"] = datetime.now()
+                
+                # CRÍTICO: Salvar sessão ANTES de retornar resposta
                 await save_user_session(session_id, session_data)
+                logger.info(f"✅ Sessão salva com sucesso - step atualizado para {next_step}")
+                logger.info(f"📊 Lead data atual: {session_data['lead_data']}")
                 
                 return {
                     "response": next_step_data["question"],
@@ -182,11 +231,15 @@ class IntelligentHybridOrchestrator:
                     "ai_mode": False
                 }
             else:
-                # Flow completed, move to phone collection
+                # CORREÇÃO 7: Fluxo completo - salvar antes de completar
+                session_data["last_updated"] = datetime.now()
+                await save_user_session(session_id, session_data)
+                logger.info(f"🏁 Fluxo estruturado completo - movendo para coleta de telefone")
                 return await self._complete_flow_and_collect_phone(session_id, session_data, flow)
                 
         except Exception as e:
-            logger.error(f"❌ Error in structured flow: {str(e)}")
+            logger.error(f"❌ Error in structured flow (step {session_data.get('current_step', 'unknown')}): {str(e)}")
+            logger.error(f"🔍 Stack trace: {e.__class__.__name__}: {str(e)}")
             return {
                 "response": "Desculpe, ocorreu um erro. Como posso ajudá-lo?",
                 "response_type": "error_fallback",
@@ -427,18 +480,30 @@ Obrigado por escolher nossos serviços! 🤝"""
 
     def _validate_answer(self, answer: str, step: int) -> bool:
         """Validate user answers based on step."""
+        logger.info(f"🔍 Validando resposta para step {step}: '{answer}' (length: {len(answer.strip())})")
+        
         if not answer or len(answer.strip()) < 2:
+            logger.warning(f"❌ Resposta muito curta para step {step}")
             return False
         
         if step == 1:  # Name
-            return len(answer.split()) >= 2
+            is_valid = len(answer.split()) >= 2
+            logger.info(f"📝 Step 1 (nome) - válido: {is_valid} (palavras: {len(answer.split())})")
+            return is_valid
         elif step == 2:  # Area of law
-            return len(answer.strip()) >= 3
+            is_valid = len(answer.strip()) >= 3
+            logger.info(f"⚖️ Step 2 (área) - válido: {is_valid}")
+            return is_valid
         elif step == 3:  # Situation
-            return len(answer.strip()) >= 10
+            is_valid = len(answer.strip()) >= 10
+            logger.info(f"📋 Step 3 (situação) - válido: {is_valid}")
+            return is_valid
         elif step == 4:  # Meeting preference
-            return len(answer.strip()) >= 1
+            is_valid = len(answer.strip()) >= 1
+            logger.info(f"🤝 Step 4 (reunião) - válido: {is_valid}")
+            return is_valid
         
+        logger.info(f"✅ Step {step} - validação padrão aprovada")
         return True
 
     def _is_phone_number(self, text: str) -> bool:
