@@ -39,7 +39,7 @@ async def start_conversation():
 
         # Start with Firebase flow for web platform
         result = await intelligent_orchestrator.process_message(
-            "olá", 
+            "start_conversation", 
             session_id, 
             platform="web"
         )

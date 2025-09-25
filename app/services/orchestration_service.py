@@ -134,8 +134,8 @@ class IntelligentHybridOrchestrator:
                 logger.error(f"❌ Step {current_step} not found in flow")
                 return await self._complete_flow_and_collect_phone(session_id, session_data, flow)
             
-            # If this is the first message (step 1), return the question
-            if current_step == 1 and message.lower() in ["olá", "oi", "hello", "hi"]:
+            # If this is the first message (step 1) or start_conversation, return the question
+            if current_step == 1 and (message.lower() in ["olá", "oi", "hello", "hi", "start_conversation"] or message == "start_conversation"):
                 return {
                     "response": current_step_data["question"],
                     "response_type": "structured_question",

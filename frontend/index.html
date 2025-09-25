@@ -106,6 +106,29 @@
       transition: 0.2s;
     }
     .input-area button:hover { background: #e07d00; }
+    
+    /* Typing indicator styles */
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .typing-indicator span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #fff;
+      animation: typing 1.4s infinite ease-in-out;
+    }
+    .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+    .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0s; }
+    
+    @keyframes typing {
+      0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+    
     @media (max-width: 600px) {
       .chat-container { width: 90%; height: 70vh; border-radius: 20px; margin: auto; }
       .chat-header { font-size: 16px; padding: 10px; }
@@ -120,7 +143,7 @@
     <div class="chat-header">💬 Chat Advocacia — Escritório X!</div>
     <div id="messages" class="messages">
       <div class="message bot">
-        <img src="https://imgur.com/z9lvA3Z.png" class="avatar" alt="Bot">
+        <div class="avatar" style="background: #4682b4; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">🤖</div>
         <div class="bubble"> Bem-vindo ao escritório, pronto para conversar?</div>
       </div>
     </div>
@@ -131,8 +154,10 @@
   </div>
 
   <script>
-    // 🔗 Definindo URL fixa do backend no Render
-    const API_BASE_URL = "http://localhost:8000";
+    // 🔗 Backend URL - try multiple sources
+    const API_BASE_URL = window.location.hostname === 'localhost' 
+      ? "http://localhost:8000"
+      : "https://law-firm-backend-936902782519-936902782519.us-central1.run.app";
 
 
     function addMessage(text, sender = 'user') {
@@ -140,12 +165,25 @@
       const messageDiv = document.createElement('div');
       messageDiv.className = `message ${sender}`;
 
-      const avatar = document.createElement('img');
+      const avatar = document.createElement('div');
       avatar.className = 'avatar';
-      avatar.src = sender === 'user' 
-        ? 'https://imgur.com/P9aCUJC.png'
-        : 'https://imgur.com/z9lvA3Z.png';
-      avatar.alt = sender;
+      if (sender === 'user') {
+        avatar.style.background = '#492519';
+        avatar.style.display = 'flex';
+        avatar.style.alignItems = 'center';
+        avatar.style.justifyContent = 'center';
+        avatar.style.color = 'white';
+        avatar.style.fontWeight = 'bold';
+        avatar.textContent = '👤';
+      } else {
+        avatar.style.background = '#4682b4';
+        avatar.style.display = 'flex';
+        avatar.style.alignItems = 'center';
+        avatar.style.justifyContent = 'center';
+        avatar.style.color = 'white';
+        avatar.style.fontWeight = 'bold';
+        avatar.textContent = '🤖';
+      }
 
       const bubble = document.createElement('div');
       bubble.className = 'bubble';
@@ -163,6 +201,38 @@
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
+    function showTypingIndicator() {
+      const messagesDiv = document.getElementById('messages');
+      const typingDiv = document.createElement('div');
+      typingDiv.className = 'message bot typing-message';
+      typingDiv.id = 'typing-indicator';
+      
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.style.background = '#4682b4';
+      avatar.style.display = 'flex';
+      avatar.style.alignItems = 'center';
+      avatar.style.justifyContent = 'center';
+      avatar.style.color = 'white';
+      avatar.style.fontWeight = 'bold';
+      avatar.textContent = '🤖';
+      
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble typing-indicator';
+      bubble.innerHTML = '<span></span><span></span><span></span>';
+      
+      typingDiv.appendChild(avatar);
+      typingDiv.appendChild(bubble);
+      messagesDiv.appendChild(typingDiv);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    
+    function removeTypingIndicator() {
+      const typingIndicator = document.getElementById('typing-indicator');
+      if (typingIndicator) {
+        typingIndicator.remove();
+      }
+    }
     async function sendMessage() {
       const input = document.getElementById('messageInput');
       const text = input.value.trim();
@@ -170,6 +240,9 @@
 
       addMessage(text, 'user');
       input.value = '';
+      
+      // Show typing indicator
+      showTypingIndicator();
 
       try {
         // Get or generate session ID
@@ -179,6 +252,8 @@
           localStorage.setItem('chat_session_id', sessionId);
         }
 
+        console.log('Sending message to:', `${API_BASE_URL}/api/v1/conversation/respond`);
+        console.log('Payload:', { message: text, session_id: sessionId });
         const response = await fetch(`${API_BASE_URL}/api/v1/conversation/respond`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -188,15 +263,24 @@
           })
         });
 
+        console.log('Response status:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers));
         if (!response.ok) throw new Error('Erro na API');
         const data = await response.json();
+        
+        console.log('Response data:', data);
 
         if (data.session_id) {
           localStorage.setItem('chat_session_id', data.session_id);
         }
 
         const botMessage = data.response || data.question || data.reply || "🤔 O bot ficou em silêncio...";
-        addMessage(botMessage, 'bot');
+        
+        // Remove typing indicator and add response
+        setTimeout(() => {
+          removeTypingIndicator();
+          addMessage(botMessage, 'bot');
+        }, 1000);
 
         // Handle WhatsApp redirect for phone collection completion
         if (data.phone_collected && data.phone_number) {
@@ -207,6 +291,7 @@
         }
       } catch (err) {
         console.error('API Error:', err);
+        removeTypingIndicator();
         addMessage("⚠️ Erro de conexão com o backend.", 'bot');
       }
     }
@@ -220,6 +305,7 @@
           localStorage.setItem('chat_session_id', sessionId);
         }
 
+        console.log('Initializing conversation with:', `${API_BASE_URL}/api/v1/conversation/start`);
         const response = await fetch(`${API_BASE_URL}/api/v1/conversation/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
@@ -227,17 +313,23 @@
 
         if (response.ok) {
           const data = await response.json();
+          console.log('Initialization data:', data);
           if (data.session_id) {
             localStorage.setItem('chat_session_id', data.session_id);
           }
           if (data.response) {
-            addMessage(data.response, 'bot');
+            // Clear initial message and add real response
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML = '';
+            setTimeout(() => {
+              addMessage(data.response, 'bot');
+            }, 500);
           }
         }
       } catch (err) {
         console.error('Failed to initialize conversation:', err);
-        // Add initial message even if API fails
-        addMessage("Olá! Seja bem-vindo ao m.lima. Estou aqui para entender seu caso e agilizar o contato com um de nossos advogados especializados. Para começar, qual é o seu nome completo?", 'bot');
+        // Keep the default welcome message if API fails
+        console.log('Using fallback welcome message');
       }
     });
 
